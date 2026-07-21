@@ -1,0 +1,42 @@
+# Build outputs
+bin/
+obj/
+
+# Publish outputs
+*.Publish.xml
+*.publishsettings
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+
+# ASP.NET Core
+appsettings.Development.json
+secrets.json
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs
+*.log
+
+# Test results
+TestResults/
+
+# Rider
+.idea/
+*.sln.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+
+.env
+.venv
