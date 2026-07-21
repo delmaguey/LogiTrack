@@ -13,6 +13,8 @@ namespace LogiTrack.Models
         [Required]
         public string  Location { get; set; } = String.Empty;
 
+        public int? OrderId { get; set; }
+        public Order? Order { get; set; }
 
         public void DisplayInfo()
         {

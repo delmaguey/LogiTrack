@@ -11,41 +11,46 @@ namespace LogiTrack.Models
         public string? CustomerName { get; set; }
         [Required]
         public DateTime DatePlaced { get; set; }
-        public List<InventoryItem>? Items { get; set; } //= new List<InventoryItem>();
-
+        public ICollection<InventoryItem> Items { get; set; } = new List<InventoryItem>();
 
         public void AddItem(InventoryItem item)
         {
-            if (Items == null)
+            if (item is null)
             {
-                Items = new List<InventoryItem>();
+                return;
             }
-            Items.Add(item);
+
+            if (!Items.Contains(item))
+            {
+                if (item.Order != this)
+                {
+                    item.Order = this;
+                    item.OrderId = OrderId;
+                }
+
+                Items.Add(item);
+            }
         }
 
         public void RemoveItem(int itemId)
         {
-            if (Items != null)
-            {
-                var item = Items.Find(x=> x.Id == itemId);
+            var item = Items.FirstOrDefault(x => x.Id == itemId);
 
-                if (item != null)
-                {
-                    Items.Remove(item);
-                }
+            if (item != null)
+            {
+                item.Order = null;
+                item.OrderId = null;
+                Items.Remove(item);
             }
         }
 
         public string GetOrderSummary(int orderId)
         {
-            if (Items != null)
-            {
-                var inventoryItem = Items.Find(x=> x.Id == orderId);
+            var inventoryItem = Items.FirstOrDefault(x => x.Id == orderId);
 
-                if (inventoryItem != null)
-                {
-                    return $"Summary for Order {orderId}: Item: {inventoryItem.Name}, Quantity: {inventoryItem.Quantity}, Location: {inventoryItem.Location}";
-                }
+            if (inventoryItem != null)
+            {
+                return $"Summary for Order {orderId}: Item: {inventoryItem.Name}, Quantity: {inventoryItem.Quantity}, Location: {inventoryItem.Location}";
             }
 
             return $"Not order found for Order {orderId}";

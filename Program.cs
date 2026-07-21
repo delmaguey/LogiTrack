@@ -3,6 +3,67 @@ using LogiTrack.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+var options = new DbContextOptionsBuilder<LogiTrackDBContext>()
+    .UseSqlite("Data Source=logitrack.db")
+    .Options;
+
+using (var context = new LogiTrackDBContext(options))
+{
+    // Add test inventory item if none exist
+    if (!context.InventoryItems.Any())
+    {
+        context.InventoryItems.Add(new InventoryItem
+        {
+            Name = "Pallet Jack",
+            Quantity = 12,
+            Location = "Warehouse A"
+        });
+
+        context.SaveChanges();
+    }
+
+    // Add a sample order if none exist
+    if (!context.Orders.Any())
+    {
+        var order = new Order
+        {
+            CustomerName = "Sample Customer",
+            DatePlaced = DateTime.UtcNow
+        };
+
+        var inventoryItem = context.InventoryItems.First();
+        order.AddItem(inventoryItem);
+
+        context.Orders.Add(order);
+        context.SaveChanges();
+    }
+
+    // Retrieve and print inventory to confirm
+    var items = context.InventoryItems.ToList();
+    foreach (var item in items)
+    {
+        item.DisplayInfo(); // Should print: Item: Pallet Jack | Quantity: 12 | Location: Warehouse A
+    }
+
+    // Retrieve and print order summaries efficiently
+    var orderSummaries = context.Orders
+        .AsNoTracking()
+        .Include(o => o.Items)
+        .Select(o => new
+        {
+            o.OrderId,
+            o.CustomerName,
+            ItemCount = o.Items.Count,
+            TotalQuantity = o.Items.Sum(i => i.Quantity)
+        })
+        .ToList();
+
+    foreach (var summary in orderSummaries)
+    {
+        Console.WriteLine($"Order {summary.OrderId}: {summary.CustomerName} - {summary.ItemCount} item(s), total quantity {summary.TotalQuantity}");
+    }
+}
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,3 +121,5 @@ record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
+
+

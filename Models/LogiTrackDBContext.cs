@@ -11,5 +11,14 @@ namespace LogiTrack.Models
         public LogiTrackDBContext(DbContextOptions<LogiTrackDBContext> options) : base(options)
         {
         }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Order>()
+                .HasMany(o => o.Items)
+                .WithOne(i => i.Order)
+                .HasForeignKey(i => i.OrderId)
+                .OnDelete(DeleteBehavior.SetNull);
+        }
     }
 }
