@@ -1,11 +1,17 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace LogiTrack.Models
 {
     public class InventoryItem
     {
+        [Key]
         public int Id { get; set; }
-        public string? Name { get; set; }
+        [Required]
+        public string Name { get; set; } = String.Empty;
+        [Required]
         public int Quantity { get; set; }
-        public string? Location { get; set; }
+        [Required]
+        public string  Location { get; set; } = String.Empty;
 
 
         public void DisplayInfo()
