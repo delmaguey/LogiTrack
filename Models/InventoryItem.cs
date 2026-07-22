@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace LogiTrack.Models
 {
@@ -14,6 +15,8 @@ namespace LogiTrack.Models
         public string  Location { get; set; } = String.Empty;
 
         public int? OrderId { get; set; }
+
+        [JsonIgnore]
         public Order? Order { get; set; }
 
         public void DisplayInfo()

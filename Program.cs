@@ -72,6 +72,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add support for MVC controllers
+builder.Services.AddControllers();
+
 builder.Services.AddDbContext<LogiTrackDBContext>(options => 
     options.UseSqlite("Data Source=logitrack.db"));
 
@@ -87,6 +90,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Map controller routes
+app.MapControllers().WithOpenApi();
 
 var summaries = new[]
 {
