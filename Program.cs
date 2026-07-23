@@ -1,5 +1,6 @@
 using System.Xml.Serialization;
 using LogiTrack.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -72,11 +73,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+
+
 // Add support for MVC controllers
 builder.Services.AddControllers();
 
 builder.Services.AddDbContext<LogiTrackDBContext>(options => 
     options.UseSqlite("Data Source=logitrack.db"));
+
+builder.Services.AddIdentity<ApplicationUser,IdentityRole>()
+                            .AddEntityFrameworkStores<LogiTrackDBContext>();
 
 var app = builder.Build();
 

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Authorization;
 
 namespace LogiTrack.Controllers
 {
@@ -24,6 +25,7 @@ namespace LogiTrack.Controllers
 
         // GET: api/Orders
         [HttpGet]
+        [Authorize]
         public async Task<ActionResult<IEnumerable<Order>>> GetOrders()
         {
             _logger.LogInformation("GetOrders called.");
@@ -37,6 +39,7 @@ namespace LogiTrack.Controllers
 
         // GET: api/Orders/5
         [HttpGet("{id}")]
+        [Authorize]
         public async Task<ActionResult<Order>> GetOrder(int id)
         {
             _logger.LogInformation("GetOrder called for id {OrderId}.", id);
@@ -53,6 +56,7 @@ namespace LogiTrack.Controllers
 
         // POST: api/Orders
         [HttpPost]
+        [Authorize]
         public async Task<ActionResult<Order>> PostOrder(Order order)
         {
             _logger.LogInformation("PostOrder called. Item count: {ItemCount}.", order.Items?.Count ?? 0);
@@ -114,6 +118,7 @@ namespace LogiTrack.Controllers
 
         // PUT: api/Orders/5
         [HttpPut("{id}")]
+        [Authorize]
         public async Task<IActionResult> PutOrder(int id, Order order)
         {
             _logger.LogInformation("PutOrder called for id {OrderId}.", id);
@@ -144,6 +149,7 @@ namespace LogiTrack.Controllers
 
         // DELETE: api/Orders/5
         [HttpDelete("{id}")]
+        [Authorize(Roles = "Manager")]
         public async Task<IActionResult> DeleteOrder(int id)
         {
             _logger.LogInformation("DeleteOrder called for id {OrderId}.", id);
@@ -166,6 +172,7 @@ namespace LogiTrack.Controllers
         // POST: api/Orders/{id}/items
         // Adds a single InventoryItem to the order. If item.Id == 0 creates a new item, otherwise attaches existing item.
         [HttpPost("{id}/items")]
+        [Authorize]
         public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item)
         {
             _logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
@@ -200,6 +207,7 @@ namespace LogiTrack.Controllers
         // DELETE: api/Orders/{id}/items/{itemId}
         // Removes the item from the order (sets OrderId to null).
         [HttpDelete("{id}/items/{itemId}")]
+        [Authorize]
         public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId)
         {
             _logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);

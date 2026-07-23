@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LogiTrack.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,7 @@ namespace LogiTrack.Controllers
         // GET: api/Inventory
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [Authorize]
         public async Task<ActionResult<IEnumerable<InventoryItem>>> GetInventoryItems()
         {
             Logger.LogInformation("GetInventoryItems called.");
@@ -34,6 +36,7 @@ namespace LogiTrack.Controllers
 
         // GET: api/Inventory/5
         [HttpGet("{id:int}")]
+        [Authorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<InventoryItem>> GetInventoryItem(int id)
@@ -49,6 +52,7 @@ namespace LogiTrack.Controllers
 
         // POST: api/Inventory
         [HttpPost]
+        [Authorize]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<InventoryItem>> PostInventoryItem(InventoryItem item)
@@ -66,6 +70,7 @@ namespace LogiTrack.Controllers
 
         // PUT: api/Inventory/5
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Manager")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -97,6 +102,7 @@ namespace LogiTrack.Controllers
 
         // DELETE: api/InventoryItems/5
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Manager")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteInventoryItem(int id)
