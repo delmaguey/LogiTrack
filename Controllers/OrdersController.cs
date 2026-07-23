@@ -151,6 +151,11 @@ namespace LogiTrack.Controllers
             if (order == null)
                 return NotFoundResource("Order", id);
 
+            // Detach any related inventory items in the database first.
+            await _context.Database.ExecuteSqlRawAsync(
+                "UPDATE InventoryItems SET OrderId = NULL WHERE OrderId = {0}",
+                id);
+
             _context.Orders.Remove(order);
             await _context.SaveChangesAsync();
 
