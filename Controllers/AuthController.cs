@@ -17,12 +17,12 @@ namespace LogiTrack.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly UserManager<IdentityUser> _userManager;
-        private readonly SignInManager<IdentityUser> _signInManager;
+        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IConfiguration _configuration;
 
-        public AuthController(UserManager<IdentityUser> userManager,
-                              SignInManager<IdentityUser> signInManager,
+        public AuthController(UserManager<ApplicationUser> userManager,
+                              SignInManager<ApplicationUser> signInManager,
                               IConfiguration configuration)
         {
             _userManager = userManager;
@@ -38,7 +38,7 @@ namespace LogiTrack.Controllers
             if (model == null || string.IsNullOrWhiteSpace(model.Email) || string.IsNullOrWhiteSpace(model.Password))
                 return BadRequest("Email and password are required.");
 
-            var user = new IdentityUser { UserName = model.Email, Email = model.Email };
+            var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
             var result = await _userManager.CreateAsync(user, model.Password);
             if (!result.Succeeded)
                 return BadRequest(result.Errors);
@@ -65,7 +65,7 @@ namespace LogiTrack.Controllers
             return Ok(new { token });
         }
 
-        private string GenerateJwtToken(IdentityUser user)
+        private string GenerateJwtToken(ApplicationUser user)
         {
             var key = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
             var issuer = _configuration["Jwt:Issuer"] ?? "LogiTrack";

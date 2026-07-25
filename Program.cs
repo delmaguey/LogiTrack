@@ -1,8 +1,11 @@
+using System.Text;
 using System.Xml.Serialization;
 using LogiTrack.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 var options = new DbContextOptionsBuilder<LogiTrackDBContext>()
     .UseSqlite("Data Source=logitrack.db")
@@ -84,6 +87,32 @@ builder.Services.AddDbContext<LogiTrackDBContext>(options =>
 builder.Services.AddIdentity<ApplicationUser,IdentityRole>()
                             .AddEntityFrameworkStores<LogiTrackDBContext>();
 
+var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "LogiTrack";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "LogiTrackUsers";
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 
@@ -96,6 +125,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Map controller routes
 app.MapControllers().WithOpenApi();
