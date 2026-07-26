@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -5,6 +6,7 @@ using LogiTrack.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace LogiTrack.Controllers
@@ -15,11 +17,15 @@ namespace LogiTrack.Controllers
     public class InventoryController : ApiControllerBase
     {
         private readonly LogiTrackDBContext _context;
+        private readonly IMemoryCache _cache;
+        private const string InventoryListCacheKey = "InventoryItems_All";
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
-        public InventoryController(LogiTrackDBContext context, ILogger<InventoryController> logger)
+        public InventoryController(LogiTrackDBContext context, ILogger<InventoryController> logger, IMemoryCache cache)
             : base(logger)
         {
             _context = context;
+            _cache = cache;
         }
 
         // GET: api/Inventory
@@ -29,7 +35,16 @@ namespace LogiTrack.Controllers
         public async Task<ActionResult<IEnumerable<InventoryItem>>> GetInventoryItems()
         {
             Logger.LogInformation("GetInventoryItems called.");
-            var items = await _context.InventoryItems.AsNoTracking().ToListAsync();
+
+            if (_cache.TryGetValue(InventoryListCacheKey, out List<InventoryItem>? items) && items != null)
+            {
+                Logger.LogInformation("GetInventoryItems served {InventoryItemCount} items from cache.", items.Count);
+                return items;
+            }
+
+            items = await _context.InventoryItems.AsNoTracking().ToListAsync();
+            _cache.Set(InventoryListCacheKey, items, CacheDuration);
+
             Logger.LogInformation("GetInventoryItems returned {InventoryItemCount} items.", items.Count);
             return items;
         }
@@ -63,6 +78,7 @@ namespace LogiTrack.Controllers
 
             _context.InventoryItems.Add(item);
             await _context.SaveChangesAsync();
+            _cache.Remove(InventoryListCacheKey);
 
             Logger.LogInformation("Created InventoryItem {InventoryItemId}.", item.Id);
             return CreatedAtAction(nameof(GetInventoryItem), new { id = item.Id }, item);
@@ -96,6 +112,7 @@ namespace LogiTrack.Controllers
                 throw;
             }
 
+            _cache.Remove(InventoryListCacheKey);
             Logger.LogInformation("Updated InventoryItem {InventoryItemId}.", id);
             return NoContent();
         }
@@ -117,6 +134,7 @@ namespace LogiTrack.Controllers
 
             _context.InventoryItems.Remove(item);
             await _context.SaveChangesAsync();
+            _cache.Remove(InventoryListCacheKey);
 
             Logger.LogInformation("Deleted InventoryItem {InventoryItemId}.", id);
             return NoContent();

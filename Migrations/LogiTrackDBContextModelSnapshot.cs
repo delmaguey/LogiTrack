@@ -105,7 +105,7 @@ namespace LogiTrack.Migrations
 
                     b.HasIndex("OrderId");
 
-                    b.ToTable("InventoryItems");
+                    b.ToTable("InventoryItems", (string)null);
                 });
 
             modelBuilder.Entity("LogiTrack.Models.Order", b =>
@@ -123,7 +123,7 @@ namespace LogiTrack.Migrations
 
                     b.HasKey("OrderId");
 
-                    b.ToTable("Orders");
+                    b.ToTable("Orders", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>

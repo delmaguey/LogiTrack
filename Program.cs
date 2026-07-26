@@ -81,6 +81,8 @@ builder.Services.AddSwaggerGen();
 // Add support for MVC controllers
 builder.Services.AddControllers();
 
+builder.Services.AddMemoryCache();
+
 builder.Services.AddDbContext<LogiTrackDBContext>(options => 
     options.UseSqlite("Data Source=logitrack.db"));
 

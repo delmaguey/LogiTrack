@@ -76,6 +76,12 @@ namespace LogiTrack.Controllers
             _context.Orders.Add(newOrder);
             await _context.SaveChangesAsync();
 
+            // Batch-load all referenced existing items in one query instead of one FindAsync per item.
+            var existingIds = incomingItems.Where(i => i.Id != 0).Select(i => i.Id).Distinct().ToList();
+            var existingItemsById = existingIds.Count > 0
+                ? await _context.InventoryItems.Where(i => existingIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id)
+                : [];
+
             // Attach incoming items: if item.Id == 0 -> new item, otherwise attach existing item
             foreach (var item in incomingItems)
             {
@@ -93,15 +99,13 @@ namespace LogiTrack.Controllers
                 }
                 else
                 {
-                    var existingItem = await _context.InventoryItems.FindAsync(item.Id);
-                    if (existingItem == null)
+                    if (!existingItemsById.TryGetValue(item.Id, out var existingItem))
                     {
                         return NotFoundResource("InventoryItem", item.Id);
                     }
 
                     existingItem.OrderId = newOrder.OrderId;
                     existingItem.Order = newOrder;
-                    _context.Entry(existingItem).State = EntityState.Modified;
                 }
             }
 
@@ -176,8 +180,8 @@ namespace LogiTrack.Controllers
         public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item)
         {
             _logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
-            var order = await _context.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.OrderId == id);
-            if (order == null)
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+            if (!orderExists)
                 return NotFoundResource("Order", id);
 
             if (item == null)
@@ -195,8 +199,6 @@ namespace LogiTrack.Controllers
                     return NotFoundResource("InventoryItem", item.Id);
 
                 existing.OrderId = id;
-                existing.Order = order;
-                _context.Entry(existing).State = EntityState.Modified;
             }
 
             await _context.SaveChangesAsync();
@@ -211,8 +213,8 @@ namespace LogiTrack.Controllers
         public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId)
         {
             _logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);
-            var order = await _context.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.OrderId == id);
-            if (order == null)
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+            if (!orderExists)
                 return NotFoundResource("Order", id);
 
             var item = await _context.InventoryItems.FindAsync(itemId);
@@ -220,8 +222,6 @@ namespace LogiTrack.Controllers
                 return NotFoundResource("InventoryItem", itemId);
 
             item.OrderId = null;
-            item.Order = null;
-            _context.Entry(item).State = EntityState.Modified;
 
             await _context.SaveChangesAsync();
             _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId}.", itemId, id);
