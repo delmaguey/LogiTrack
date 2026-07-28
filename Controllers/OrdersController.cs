@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authorization;
+using System.Diagnostics;
 
 namespace LogiTrack.Controllers
 {
@@ -29,11 +30,14 @@ namespace LogiTrack.Controllers
         public async Task<ActionResult<IEnumerable<Order>>> GetOrders()
         {
             _logger.LogInformation("GetOrders called.");
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             var orders = await _context.Orders
                 .AsNoTracking()
                 .Include(o => o.Items)
                 .ToListAsync();
-            _logger.LogInformation("GetOrders returned {OrderCount} orders.", orders.Count);
+            stopwatch.Stop();
+            _logger.LogInformation("GetOrders returned {OrderCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", orders.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return orders;
         }
 
@@ -43,10 +47,14 @@ namespace LogiTrack.Controllers
         public async Task<ActionResult<Order>> GetOrder(int id)
         {
             _logger.LogInformation("GetOrder called for id {OrderId}.", id);
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             var order = await _context.Orders
                 .Include(o => o.Items)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrderId == id);
+            stopwatch.Stop();
+            _logger.LogInformation("GetOrder returned order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
 
             if (order == null)
                 return NotFoundResource("Order", id);
@@ -63,6 +71,8 @@ namespace LogiTrack.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             // Keep incoming items to process them separately
             var incomingItems = order.Items?.ToList() ?? new List<InventoryItem>();
 
@@ -116,7 +126,8 @@ namespace LogiTrack.Controllers
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrderId == newOrder.OrderId);
 
-            _logger.LogInformation("Created Order {OrderId} with {ItemCount} items.", newOrder.OrderId, incomingItems.Count);
+            stopwatch.Stop();
+            _logger.LogInformation("Created Order {OrderId} with {ItemCount} items in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", newOrder.OrderId, incomingItems.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return CreatedAtAction(nameof(GetOrder), new { id = newOrder.OrderId }, created);
         }
 
@@ -129,6 +140,8 @@ namespace LogiTrack.Controllers
             if (id != order.OrderId)
                 return BadRequest();
 
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             var existing = await _context.Orders.FindAsync(id);
             if (existing == null)
                 return NotFoundResource("Order", id);
@@ -147,7 +160,8 @@ namespace LogiTrack.Controllers
                 throw;
             }
 
-            _logger.LogInformation("Updated Order {OrderId} successfully.", id);
+            stopwatch.Stop();
+            _logger.LogInformation("Updated Order {OrderId} successfully in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -157,6 +171,10 @@ namespace LogiTrack.Controllers
         public async Task<IActionResult> DeleteOrder(int id)
         {
             _logger.LogInformation("DeleteOrder called for id {OrderId}.", id);
+            
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
             var order = await _context.Orders.FindAsync(id);
             if (order == null)
                 return NotFoundResource("Order", id);
@@ -169,7 +187,8 @@ namespace LogiTrack.Controllers
             _context.Orders.Remove(order);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Deleted Order {OrderId}.", id);
+            stopwatch.Stop();
+            _logger.LogInformation("Deleted Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -180,6 +199,10 @@ namespace LogiTrack.Controllers
         public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item)
         {
             _logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
+            
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+            
             var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
             if (!orderExists)
                 return NotFoundResource("Order", id);
@@ -202,7 +225,8 @@ namespace LogiTrack.Controllers
             }
 
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Added InventoryItem to Order {OrderId}.", id);
+            stopwatch.Stop();
+            _logger.LogInformation("Added InventoryItem to Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -213,6 +237,10 @@ namespace LogiTrack.Controllers
         public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId)
         {
             _logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);
+            
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+            
             var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
             if (!orderExists)
                 return NotFoundResource("Order", id);
@@ -224,7 +252,8 @@ namespace LogiTrack.Controllers
             item.OrderId = null;
 
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId}.", itemId, id);
+            stopwatch.Stop();
+            _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", itemId, id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
