@@ -83,7 +83,12 @@ builder.Services.AddControllers();
 
 builder.Services.AddMemoryCache();
 
-builder.Services.AddDbContext<LogiTrackDBContext>(options => 
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
+
+builder.Services.AddDbContextPool<LogiTrackDBContext>(options =>
     options.UseSqlite("Data Source=logitrack.db"));
 
 builder.Services.AddIdentity<ApplicationUser,IdentityRole>()
@@ -127,6 +132,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseResponseCompression();
 
 app.UseAuthentication();
 app.UseAuthorization();
