@@ -66,6 +66,7 @@ namespace LogiTrack.Controllers
             stopwatch.Start();
             var order = await _context.Orders
                 .Include(o => o.Items)
+                .AsSplitQuery()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrderId == id);
             stopwatch.Stop();
@@ -138,6 +139,7 @@ namespace LogiTrack.Controllers
 
             var created = await _context.Orders
                 .Include(o => o.Items)
+                .AsSplitQuery()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrderId == newOrder.OrderId);
 
