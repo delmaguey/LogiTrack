@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace LogiTrack.Controllers
 {
@@ -36,6 +36,8 @@ namespace LogiTrack.Controllers
         {
             Logger.LogInformation("GetInventoryItems called.");
 
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             if (_cache.TryGetValue(InventoryListCacheKey, out List<InventoryItem>? items) && items != null)
             {
                 Logger.LogInformation("GetInventoryItems served {InventoryItemCount} items from cache.", items.Count);
@@ -45,7 +47,8 @@ namespace LogiTrack.Controllers
             items = await _context.InventoryItems.AsNoTracking().ToListAsync();
             _cache.Set(InventoryListCacheKey, items, CacheDuration);
 
-            Logger.LogInformation("GetInventoryItems returned {InventoryItemCount} items.", items.Count);
+            stopwatch.Stop();
+            Logger.LogInformation("GetInventoryItems returned {InventoryItemCount} items in {ElapsedMilliseconds} ms.", items.Count, stopwatch.ElapsedMilliseconds);
             return items;
         }
 
@@ -56,12 +59,16 @@ namespace LogiTrack.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<InventoryItem>> GetInventoryItem(int id)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             Logger.LogInformation("GetInventoryItem called for id {InventoryItemId}.", id);
             var item = await _context.InventoryItems.FindAsync(id);
 
             if (item == null)
                 return NotFoundResource("InventoryItem", id);
 
+            stopwatch.Stop();
+            Logger.LogInformation("GetInventoryItem returned item in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
             return item;
         }
 
@@ -72,6 +79,8 @@ namespace LogiTrack.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<InventoryItem>> PostInventoryItem(InventoryItem item)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             Logger.LogInformation("PostInventoryItem called.");
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -80,7 +89,8 @@ namespace LogiTrack.Controllers
             await _context.SaveChangesAsync();
             _cache.Remove(InventoryListCacheKey);
 
-            Logger.LogInformation("Created InventoryItem {InventoryItemId}.", item.Id);
+            stopwatch.Stop();
+            Logger.LogInformation("Created InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", item.Id, stopwatch.ElapsedMilliseconds);
             return CreatedAtAction(nameof(GetInventoryItem), new { id = item.Id }, item);
         }
 
@@ -92,6 +102,8 @@ namespace LogiTrack.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> PutInventoryItem(int id, InventoryItem item)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             Logger.LogInformation("PutInventoryItem called for id {InventoryItemId}.", id);
             if (id != item.Id)
                 return BadRequestResource("Invalid request", "El id en la ruta no coincide con el id del item.");
@@ -113,7 +125,8 @@ namespace LogiTrack.Controllers
             }
 
             _cache.Remove(InventoryListCacheKey);
-            Logger.LogInformation("Updated InventoryItem {InventoryItemId}.", id);
+            stopwatch.Stop();
+            Logger.LogInformation("Updated InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", id, stopwatch.ElapsedMilliseconds);
             return NoContent();
         }
 
@@ -124,6 +137,8 @@ namespace LogiTrack.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteInventoryItem(int id)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             Logger.LogInformation("DeleteInventoryItem called for id {InventoryItemId}.", id);
             var item = await _context.InventoryItems.FindAsync(id);
             if (item == null)
@@ -136,7 +151,8 @@ namespace LogiTrack.Controllers
             await _context.SaveChangesAsync();
             _cache.Remove(InventoryListCacheKey);
 
-            Logger.LogInformation("Deleted InventoryItem {InventoryItemId}.", id);
+            stopwatch.Stop();
+            Logger.LogInformation("Deleted InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", id, stopwatch.ElapsedMilliseconds);
             return NoContent();
         }
 

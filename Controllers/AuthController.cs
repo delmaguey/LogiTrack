@@ -10,24 +10,29 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.ComponentModel.DataAnnotations;
 using LogiTrack.Models;
+using System.Diagnostics;
 
 namespace LogiTrack.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    public class AuthController : ApiControllerBase
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IConfiguration _configuration;
 
+        private readonly ILogger<AuthController> _logger;
+
         public AuthController(UserManager<ApplicationUser> userManager,
                               SignInManager<ApplicationUser> signInManager,
-                              IConfiguration configuration)
+                              IConfiguration configuration,
+                              ILogger<AuthController> logger):base(logger)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _configuration = configuration;
+            _logger = logger;
         }
 
         
@@ -35,6 +40,9 @@ namespace LogiTrack.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Register([FromBody] RegisterRequest model)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
             if (model == null || string.IsNullOrWhiteSpace(model.Email) || string.IsNullOrWhiteSpace(model.Password))
                 return BadRequest("Email and password are required.");
 
@@ -43,6 +51,8 @@ namespace LogiTrack.Controllers
             if (!result.Succeeded)
                 return BadRequest(result.Errors);
 
+            stopwatch.Stop();
+            _logger.LogInformation("User registered in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
             return Ok(new { message = "User registered" });
         }
 
@@ -50,6 +60,9 @@ namespace LogiTrack.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] LoginRequest model)
         {
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
             if (model == null || string.IsNullOrWhiteSpace(model.Email) || string.IsNullOrWhiteSpace(model.Password))
                 return BadRequest("Email and password are required.");
 
@@ -62,6 +75,8 @@ namespace LogiTrack.Controllers
                 return Unauthorized();
 
             var token = GenerateJwtToken(user);
+            stopwatch.Stop();
+            _logger.LogInformation("User logged in in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
             return Ok(new { token });
         }
 
@@ -70,6 +85,9 @@ namespace LogiTrack.Controllers
             var key = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
             var issuer = _configuration["Jwt:Issuer"] ?? "LogiTrack";
             var audience = _configuration["Jwt:Audience"] ?? "LogiTrackUsers";
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
 
             var claims = new[]
             {
@@ -88,6 +106,8 @@ namespace LogiTrack.Controllers
                 expires: DateTime.UtcNow.AddHours(6),
                 signingCredentials: creds);
 
+            stopwatch.Stop();
+            _logger.LogInformation("JWT token generated in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
     }
