@@ -1,5 +1,6 @@
 using LogiTrack.Models;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace LogiTrack.Models
 {
@@ -10,6 +11,7 @@ namespace LogiTrack.Models
         [Required]
         public string? CustomerName { get; set; }
         [Required]
+        [JsonConverter(typeof(CustomDateTimeConverter))]
         public DateTime DatePlaced { get; set; }
         public ICollection<InventoryItem> Items { get; set; } = new List<InventoryItem>();
 
