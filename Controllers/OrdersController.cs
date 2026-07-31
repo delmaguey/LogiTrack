@@ -24,20 +24,35 @@ namespace LogiTrack.Controllers
             _logger = logger;
         }
 
-        // GET: api/Orders
+        // GET: api/Orders?pageNumber=1&pageSize=20
         [HttpGet]
         [Authorize]
-        public async Task<ActionResult<IEnumerable<Order>>> GetOrders()
+        public async Task<ActionResult<IEnumerable<Order>>> GetOrders(int pageNumber = 1, int pageSize = 20)
         {
-            _logger.LogInformation("GetOrders called.");
+            if (pageNumber < 1 || pageSize < 1 || pageSize > 100)
+                return BadRequest("pageNumber must be >= 1 and pageSize must be between 1 and 100.");
+
+            _logger.LogInformation("GetOrders called. Page {PageNumber}, Size {PageSize}.", pageNumber, pageSize);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
+
+            var totalCount = await _context.Orders.CountAsync();
             var orders = await _context.Orders
                 .AsNoTracking()
+                .OrderBy(o => o.OrderId)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
                 .Include(o => o.Items)
+                .AsSplitQuery()
                 .ToListAsync();
+
             stopwatch.Stop();
-            _logger.LogInformation("GetOrders returned {OrderCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", orders.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            _logger.LogInformation("GetOrders returned {OrderCount} of {TotalCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", orders.Count, totalCount, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+
+            Response.Headers["X-Total-Count"] = totalCount.ToString();
+            Response.Headers["X-Page-Number"] = pageNumber.ToString();
+            Response.Headers["X-Page-Size"] = pageSize.ToString();
+
             return orders;
         }
 
