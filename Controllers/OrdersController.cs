@@ -100,7 +100,6 @@ namespace LogiTrack.Controllers
             };
 
             _context.Orders.Add(newOrder);
-            await _context.SaveChangesAsync();
 
             // Batch-load all referenced existing items in one query instead of one FindAsync per item.
             var existingIds = incomingItems.Where(i => i.Id != 0).Select(i => i.Id).Distinct().ToList();
@@ -108,7 +107,8 @@ namespace LogiTrack.Controllers
                 ? await _context.InventoryItems.Where(i => existingIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id)
                 : [];
 
-            // Attach incoming items: if item.Id == 0 -> new item, otherwise attach existing item
+            // Attach incoming items via navigation property so EF Core fixes up the FK once newOrder
+            // gets its identity, letting the whole graph be persisted in a single SaveChangesAsync call.
             foreach (var item in incomingItems)
             {
                 if (item.Id == 0)
@@ -118,7 +118,7 @@ namespace LogiTrack.Controllers
                         Name = item.Name,
                         Quantity = item.Quantity,
                         Location = item.Location,
-                        OrderId = newOrder.OrderId
+                        Order = newOrder
                     };
 
                     _context.InventoryItems.Add(newItem);
@@ -130,7 +130,6 @@ namespace LogiTrack.Controllers
                         return NotFoundResource("InventoryItem", item.Id);
                     }
 
-                    existingItem.OrderId = newOrder.OrderId;
                     existingItem.Order = newOrder;
                 }
             }
@@ -192,17 +191,19 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var order = await _context.Orders.FindAsync(id);
-            if (order == null)
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+            if (!orderExists)
                 return NotFoundResource("Order", id);
 
-            // Detach any related inventory items in the database first.
-            await _context.Database.ExecuteSqlRawAsync(
-                "UPDATE InventoryItems SET OrderId = NULL WHERE OrderId = {0}",
-                id);
+            // Detach any related inventory items in the database first, without loading them.
+            await _context.InventoryItems
+                .Where(i => i.OrderId == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null));
 
-            _context.Orders.Remove(order);
-            await _context.SaveChangesAsync();
+            // Delete the order directly in the database, without loading or tracking it.
+            await _context.Orders
+                .Where(o => o.OrderId == id)
+                .ExecuteDeleteAsync();
 
             stopwatch.Stop();
             _logger.LogInformation("Deleted Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
