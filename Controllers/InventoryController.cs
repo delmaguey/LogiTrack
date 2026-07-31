@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using LogiTrack.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -32,7 +33,7 @@ namespace LogiTrack.Controllers
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [Authorize]
-        public async Task<ActionResult<IEnumerable<InventoryItem>>> GetInventoryItems()
+        public async Task<ActionResult<IEnumerable<InventoryItem>>> GetInventoryItems(CancellationToken cancellationToken)
         {
             Logger.LogInformation("GetInventoryItems called.");
 
@@ -44,7 +45,7 @@ namespace LogiTrack.Controllers
                 return items;
             }
 
-            items = await _context.InventoryItems.AsNoTracking().ToListAsync();
+            items = await _context.InventoryItems.AsNoTracking().ToListAsync(cancellationToken);
             _cache.Set(InventoryListCacheKey, items, CacheDuration);
 
             stopwatch.Stop();
@@ -57,12 +58,12 @@ namespace LogiTrack.Controllers
         [Authorize]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<ActionResult<InventoryItem>> GetInventoryItem(int id)
+        public async Task<ActionResult<InventoryItem>> GetInventoryItem(int id, CancellationToken cancellationToken)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             Logger.LogInformation("GetInventoryItem called for id {InventoryItemId}.", id);
-            var item = await _context.InventoryItems.FindAsync(id);
+            var item = await _context.InventoryItems.FindAsync([id], cancellationToken);
 
             if (item == null)
                 return NotFoundResource("InventoryItem", id);
@@ -77,7 +78,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<InventoryItem>> PostInventoryItem(InventoryItem item)
+        public async Task<ActionResult<InventoryItem>> PostInventoryItem(InventoryItem item, CancellationToken cancellationToken)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -86,7 +87,7 @@ namespace LogiTrack.Controllers
                 return BadRequest(ModelState);
 
             _context.InventoryItems.Add(item);
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
             _cache.Remove(InventoryListCacheKey);
 
             stopwatch.Stop();
@@ -100,7 +101,7 @@ namespace LogiTrack.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> PutInventoryItem(int id, InventoryItem item)
+        public async Task<IActionResult> PutInventoryItem(int id, InventoryItem item, CancellationToken cancellationToken)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -112,11 +113,11 @@ namespace LogiTrack.Controllers
 
             try
             {
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!await InventoryItemExistsAsync(id))
+                if (!await InventoryItemExistsAsync(id, cancellationToken))
                 {
                     Logger.LogWarning("InventoryItem {InventoryItemId} not found during update.", id);
                     return NotFoundResource("InventoryItem", id);
@@ -135,12 +136,12 @@ namespace LogiTrack.Controllers
         [Authorize(Roles = "Manager")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> DeleteInventoryItem(int id)
+        public async Task<IActionResult> DeleteInventoryItem(int id, CancellationToken cancellationToken)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             Logger.LogInformation("DeleteInventoryItem called for id {InventoryItemId}.", id);
-            var item = await _context.InventoryItems.FindAsync(id);
+            var item = await _context.InventoryItems.FindAsync([id], cancellationToken);
             if (item == null)
             {
                 Logger.LogWarning("InventoryItem {InventoryItemId} not found for delete.", id);
@@ -148,7 +149,7 @@ namespace LogiTrack.Controllers
             }
 
             _context.InventoryItems.Remove(item);
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
             _cache.Remove(InventoryListCacheKey);
 
             stopwatch.Stop();
@@ -156,9 +157,9 @@ namespace LogiTrack.Controllers
             return NoContent();
         }
 
-        private async Task<bool> InventoryItemExistsAsync(int id)
+        private async Task<bool> InventoryItemExistsAsync(int id, CancellationToken cancellationToken)
         {
-            return await _context.InventoryItems.AnyAsync(e => e.Id == id);
+            return await _context.InventoryItems.AnyAsync(e => e.Id == id, cancellationToken);
         }
     }
 }

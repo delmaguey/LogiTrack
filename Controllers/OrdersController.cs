@@ -1,11 +1,15 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using LogiTrack.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Authorization;
 using System.Diagnostics;
 
@@ -17,17 +21,39 @@ namespace LogiTrack.Controllers
     {
         private readonly LogiTrackDBContext _context;
         private readonly ILogger<OrdersController> _logger;
+        private readonly IMemoryCache _cache;
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(2);
 
-        public OrdersController(LogiTrackDBContext context, ILogger<OrdersController> logger)
+        // Shared by every cache entry this controller writes (list pages and individual orders).
+        // Cancelling it evicts everything at once, so any write invalidates all cached reads.
+        private static CancellationTokenSource _cacheTokenSource = new();
+
+        public OrdersController(LogiTrackDBContext context, ILogger<OrdersController> logger, IMemoryCache cache)
         {
             _context = context;
             _logger = logger;
+            _cache = cache;
+        }
+
+        private static string OrdersListCacheKey(int pageNumber, int pageSize) => $"Orders_List_{pageNumber}_{pageSize}";
+
+        private static string OrderCacheKey(int id) => $"Order_{id}";
+
+        private MemoryCacheEntryOptions CacheEntryOptions() => new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(CacheDuration)
+            .AddExpirationToken(new CancellationChangeToken(_cacheTokenSource.Token));
+
+        private static void InvalidateCache()
+        {
+            var oldTokenSource = Interlocked.Exchange(ref _cacheTokenSource, new CancellationTokenSource());
+            oldTokenSource.Cancel();
+            oldTokenSource.Dispose();
         }
 
         // GET: api/Orders?pageNumber=1&pageSize=20
         [HttpGet]
         [Authorize]
-        public async Task<ActionResult<IEnumerable<Order>>> GetOrders(int pageNumber = 1, int pageSize = 20)
+        public async Task<ActionResult<IEnumerable<Order>>> GetOrders(int pageNumber = 1, int pageSize = 20, CancellationToken cancellationToken = default)
         {
             if (pageNumber < 1 || pageSize < 1 || pageSize > 100)
                 return BadRequest("pageNumber must be >= 1 and pageSize must be between 1 and 100.");
@@ -36,39 +62,55 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var totalCount = await _context.Orders.CountAsync();
-            var orders = await _context.Orders
-                .AsNoTracking()
-                .OrderBy(o => o.OrderId)
-                .Skip((pageNumber - 1) * pageSize)
-                .Take(pageSize)
-                .Include(o => o.Items)
-                .AsSplitQuery()
-                .ToListAsync();
+            var cacheKey = OrdersListCacheKey(pageNumber, pageSize);
+            if (!_cache.TryGetValue(cacheKey, out (List<Order> Orders, int TotalCount) cached))
+            {
+                var totalCount = await _context.Orders.CountAsync(cancellationToken);
+                var orders = await _context.Orders
+                    .AsNoTracking()
+                    .OrderBy(o => o.OrderId)
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .Include(o => o.Items)
+                    .AsSplitQuery()
+                    .ToListAsync(cancellationToken);
+
+                cached = (orders, totalCount);
+                _cache.Set(cacheKey, cached, CacheEntryOptions());
+            }
 
             stopwatch.Stop();
-            _logger.LogInformation("GetOrders returned {OrderCount} of {TotalCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", orders.Count, totalCount, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            _logger.LogInformation("GetOrders returned {OrderCount} of {TotalCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", cached.Orders.Count, cached.TotalCount, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
 
-            Response.Headers["X-Total-Count"] = totalCount.ToString();
+            Response.Headers["X-Total-Count"] = cached.TotalCount.ToString();
             Response.Headers["X-Page-Number"] = pageNumber.ToString();
             Response.Headers["X-Page-Size"] = pageSize.ToString();
 
-            return orders;
+            return cached.Orders;
         }
 
         // GET: api/Orders/5
         [HttpGet("{id}")]
         [Authorize]
-        public async Task<ActionResult<Order>> GetOrder(int id)
+        public async Task<ActionResult<Order>> GetOrder(int id, CancellationToken cancellationToken)
         {
             _logger.LogInformation("GetOrder called for id {OrderId}.", id);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            var order = await _context.Orders
-                .Include(o => o.Items)
-                .AsSplitQuery()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(o => o.OrderId == id);
+
+            var cacheKey = OrderCacheKey(id);
+            if (!_cache.TryGetValue(cacheKey, out Order? order))
+            {
+                order = await _context.Orders
+                    .Include(o => o.Items)
+                    .AsSplitQuery()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(o => o.OrderId == id, cancellationToken);
+
+                if (order != null)
+                    _cache.Set(cacheKey, order, CacheEntryOptions());
+            }
+
             stopwatch.Stop();
             _logger.LogInformation("GetOrder returned order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
 
@@ -81,7 +123,7 @@ namespace LogiTrack.Controllers
         // POST: api/Orders
         [HttpPost]
         [Authorize]
-        public async Task<ActionResult<Order>> PostOrder(Order order)
+        public async Task<ActionResult<Order>> PostOrder(Order order, CancellationToken cancellationToken)
         {
             _logger.LogInformation("PostOrder called. Item count: {ItemCount}.", order.Items?.Count ?? 0);
             if (!ModelState.IsValid)
@@ -104,7 +146,7 @@ namespace LogiTrack.Controllers
             // Batch-load all referenced existing items in one query instead of one FindAsync per item.
             var existingIds = incomingItems.Where(i => i.Id != 0).Select(i => i.Id).Distinct().ToList();
             var existingItemsById = existingIds.Count > 0
-                ? await _context.InventoryItems.Where(i => existingIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id)
+                ? await _context.InventoryItems.Where(i => existingIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, cancellationToken)
                 : [];
 
             // Attach incoming items via navigation property so EF Core fixes up the FK once newOrder
@@ -134,13 +176,15 @@ namespace LogiTrack.Controllers
                 }
             }
 
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
 
             var created = await _context.Orders
                 .Include(o => o.Items)
                 .AsSplitQuery()
                 .AsNoTracking()
-                .FirstOrDefaultAsync(o => o.OrderId == newOrder.OrderId);
+                .FirstOrDefaultAsync(o => o.OrderId == newOrder.OrderId, cancellationToken);
+
+            InvalidateCache();
 
             stopwatch.Stop();
             _logger.LogInformation("Created Order {OrderId} with {ItemCount} items in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", newOrder.OrderId, incomingItems.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
@@ -150,7 +194,7 @@ namespace LogiTrack.Controllers
         // PUT: api/Orders/5
         [HttpPut("{id}")]
         [Authorize]
-        public async Task<IActionResult> PutOrder(int id, Order order)
+        public async Task<IActionResult> PutOrder(int id, Order order, CancellationToken cancellationToken)
         {
             _logger.LogInformation("PutOrder called for id {OrderId}.", id);
             if (id != order.OrderId)
@@ -163,10 +207,12 @@ namespace LogiTrack.Controllers
                 .Where(o => o.OrderId == id)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(o => o.CustomerName, order.CustomerName)
-                    .SetProperty(o => o.DatePlaced, order.DatePlaced));
+                    .SetProperty(o => o.DatePlaced, order.DatePlaced), cancellationToken);
 
             if (rowsAffected == 0)
                 return NotFoundResource("Order", id);
+
+            InvalidateCache();
 
             stopwatch.Stop();
             _logger.LogInformation("Updated Order {OrderId} successfully in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
@@ -176,26 +222,28 @@ namespace LogiTrack.Controllers
         // DELETE: api/Orders/5
         [HttpDelete("{id}")]
         [Authorize(Roles = "Manager")]
-        public async Task<IActionResult> DeleteOrder(int id)
+        public async Task<IActionResult> DeleteOrder(int id, CancellationToken cancellationToken)
         {
             _logger.LogInformation("DeleteOrder called for id {OrderId}.", id);
-            
+
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id, cancellationToken);
             if (!orderExists)
                 return NotFoundResource("Order", id);
 
             // Detach any related inventory items in the database first, without loading them.
             await _context.InventoryItems
                 .Where(i => i.OrderId == id)
-                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null));
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null), cancellationToken);
 
             // Delete the order directly in the database, without loading or tracking it.
             await _context.Orders
                 .Where(o => o.OrderId == id)
-                .ExecuteDeleteAsync();
+                .ExecuteDeleteAsync(cancellationToken);
+
+            InvalidateCache();
 
             stopwatch.Stop();
             _logger.LogInformation("Deleted Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
@@ -206,14 +254,14 @@ namespace LogiTrack.Controllers
         // Adds a single InventoryItem to the order. If item.Id == 0 creates a new item, otherwise attaches existing item.
         [HttpPost("{id}/items")]
         [Authorize]
-        public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item)
+        public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item, CancellationToken cancellationToken)
         {
             _logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
-            
+
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            
-            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id, cancellationToken);
             if (!orderExists)
                 return NotFoundResource("Order", id);
 
@@ -224,17 +272,19 @@ namespace LogiTrack.Controllers
             {
                 item.OrderId = id;
                 _context.InventoryItems.Add(item);
-                await _context.SaveChangesAsync();
+                await _context.SaveChangesAsync(cancellationToken);
             }
             else
             {
                 var rowsAffected = await _context.InventoryItems
                     .Where(i => i.Id == item.Id)
-                    .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, id));
+                    .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, id), cancellationToken);
 
                 if (rowsAffected == 0)
                     return NotFoundResource("InventoryItem", item.Id);
             }
+
+            InvalidateCache();
 
             stopwatch.Stop();
             _logger.LogInformation("Added InventoryItem to Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
@@ -245,23 +295,25 @@ namespace LogiTrack.Controllers
         // Removes the item from the order (sets OrderId to null).
         [HttpDelete("{id}/items/{itemId}")]
         [Authorize]
-        public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId)
+        public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId, CancellationToken cancellationToken)
         {
             _logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);
-            
+
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            
-            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id);
+
+            var orderExists = await _context.Orders.AnyAsync(o => o.OrderId == id, cancellationToken);
             if (!orderExists)
                 return NotFoundResource("Order", id);
 
             var rowsAffected = await _context.InventoryItems
                 .Where(i => i.Id == itemId && i.OrderId == id)
-                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null));
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null), cancellationToken);
 
             if (rowsAffected == 0)
                 return NotFoundResource("InventoryItem", itemId);
+
+            InvalidateCache();
 
             stopwatch.Stop();
             _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", itemId, id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
