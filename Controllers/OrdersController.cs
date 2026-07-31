@@ -158,23 +158,15 @@ namespace LogiTrack.Controllers
 
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            var existing = await _context.Orders.FindAsync(id);
-            if (existing == null)
+
+            var rowsAffected = await _context.Orders
+                .Where(o => o.OrderId == id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(o => o.CustomerName, order.CustomerName)
+                    .SetProperty(o => o.DatePlaced, order.DatePlaced));
+
+            if (rowsAffected == 0)
                 return NotFoundResource("Order", id);
-
-            existing.CustomerName = order.CustomerName;
-            existing.DatePlaced = order.DatePlaced;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!await OrderExistsAsync(id))
-                    return NotFoundResource("Order", id);
-                throw;
-            }
 
             stopwatch.Stop();
             _logger.LogInformation("Updated Order {OrderId} successfully in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
@@ -232,17 +224,18 @@ namespace LogiTrack.Controllers
             {
                 item.OrderId = id;
                 _context.InventoryItems.Add(item);
+                await _context.SaveChangesAsync();
             }
             else
             {
-                var existing = await _context.InventoryItems.FindAsync(item.Id);
-                if (existing == null)
-                    return NotFoundResource("InventoryItem", item.Id);
+                var rowsAffected = await _context.InventoryItems
+                    .Where(i => i.Id == item.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, id));
 
-                existing.OrderId = id;
+                if (rowsAffected == 0)
+                    return NotFoundResource("InventoryItem", item.Id);
             }
 
-            await _context.SaveChangesAsync();
             stopwatch.Stop();
             _logger.LogInformation("Added InventoryItem to Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
@@ -263,21 +256,16 @@ namespace LogiTrack.Controllers
             if (!orderExists)
                 return NotFoundResource("Order", id);
 
-            var item = await _context.InventoryItems.FindAsync(itemId);
-            if (item == null || item.OrderId != id)
+            var rowsAffected = await _context.InventoryItems
+                .Where(i => i.Id == itemId && i.OrderId == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.OrderId, (int?)null));
+
+            if (rowsAffected == 0)
                 return NotFoundResource("InventoryItem", itemId);
 
-            item.OrderId = null;
-
-            await _context.SaveChangesAsync();
             stopwatch.Stop();
             _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", itemId, id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
-        }
-
-        private async Task<bool> OrderExistsAsync(int id)
-        {
-            return await _context.Orders.AnyAsync(e => e.OrderId == id);
         }
 
         private ActionResult NotFoundResource(string resource, object id)
