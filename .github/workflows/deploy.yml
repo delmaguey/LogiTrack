@@ -64,6 +64,8 @@ jobs:
               { "name": "Jwt__Key", "value": "${{ secrets.JWT_KEY }}", "slotSetting": false },
               { "name": "Jwt__Issuer", "value": "${{ secrets.JWT_ISSUER }}", "slotSetting": false },
               { "name": "Jwt__Audience", "value": "${{ secrets.JWT_AUDIENCE }}", "slotSetting": false },
+              { "name": "Seed__ManagerEmail", "value": "${{ secrets.SEED_MANAGER_EMAIL }}", "slotSetting": false },
+              { "name": "Seed__ManagerPassword", "value": "${{ secrets.SEED_MANAGER_PASSWORD }}", "slotSetting": false },
               { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production", "slotSetting": false }
             ]
 
