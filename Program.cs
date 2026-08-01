@@ -122,7 +122,33 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Seed the Manager role and, if no Manager exists yet, one seed Manager account so there's a way
+// to bootstrap into role-restricted endpoints without granting roles through the API itself.
+using (var scope = app.Services.CreateScope())
+{
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
+    if (!await roleManager.RoleExistsAsync("Manager"))
+        await roleManager.CreateAsync(new IdentityRole("Manager"));
+
+    if (!(await userManager.GetUsersInRoleAsync("Manager")).Any())
+    {
+        var seedManagerEmail = builder.Configuration["Seed:ManagerEmail"] ?? "manager@logitrack.local";
+        var seedManagerPassword = builder.Configuration["Seed:ManagerPassword"] ?? throw new InvalidOperationException("Seed:ManagerPassword must be configured to seed the initial Manager account.");
+
+        var managerUser = await userManager.FindByEmailAsync(seedManagerEmail);
+        if (managerUser == null)
+        {
+            managerUser = new ApplicationUser { UserName = seedManagerEmail, Email = seedManagerEmail };
+            var createResult = await userManager.CreateAsync(managerUser, seedManagerPassword);
+            if (!createResult.Succeeded)
+                throw new InvalidOperationException($"Failed to seed Manager account: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
+        }
+
+        await userManager.AddToRoleAsync(managerUser, "Manager");
+    }
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

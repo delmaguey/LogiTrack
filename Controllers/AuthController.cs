@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
@@ -74,13 +76,35 @@ namespace LogiTrack.Controllers
             if (!result.Succeeded)
                 return Unauthorized();
 
-            var token = GenerateJwtToken(user);
+            var token = await GenerateJwtToken(user);
             stopwatch.Stop();
             _logger.LogInformation("User logged in in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
             return Ok(new { token });
         }
 
-        private string GenerateJwtToken(ApplicationUser user)
+        [HttpPost("assign-manager-role")]
+        [Authorize(Roles = "Manager")]
+        public async Task<IActionResult> AssignManagerRole([FromBody] AssignRoleRequest model)
+        {
+            if (model == null || string.IsNullOrWhiteSpace(model.Email))
+                return BadRequest("Email is required.");
+
+            var user = await _userManager.FindByEmailAsync(model.Email);
+            if (user == null)
+                return NotFoundResource("User", model.Email);
+
+            if (await _userManager.IsInRoleAsync(user, "Manager"))
+                return Ok(new { message = $"{model.Email} is already a Manager." });
+
+            var result = await _userManager.AddToRoleAsync(user, "Manager");
+            if (!result.Succeeded)
+                return BadRequest(result.Errors);
+
+            _logger.LogInformation("User {Email} promoted to Manager by {ActingUser}.", model.Email, User.Identity?.Name);
+            return Ok(new { message = $"{model.Email} is now a Manager." });
+        }
+
+        private async Task<string> GenerateJwtToken(ApplicationUser user)
         {
             var key = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key not configured");
             var issuer = _configuration["Jwt:Issuer"] ?? "LogiTrack";
@@ -89,12 +113,16 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var claims = new[]
+            var roles = await _userManager.GetRolesAsync(user);
+
+            var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
+
+            claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
             var keyBytes = Encoding.UTF8.GetBytes(key);
             var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
