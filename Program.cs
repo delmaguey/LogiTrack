@@ -4,11 +4,13 @@ using System.Xml.Serialization;
 using LogiTrack.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 
 var options = new DbContextOptionsBuilder<LogiTrackDBContext>()
@@ -94,6 +96,9 @@ builder.Services.AddResponseCompression(options =>
 
 builder.Services.AddDbContextPool<LogiTrackDBContext>(options =>
     options.UseSqlite("Data Source=logitrack.db"));
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<LogiTrackDBContext>("database");
 
 builder.Services.AddIdentity<ApplicationUser,IdentityRole>()
                             .AddEntityFrameworkStores<LogiTrackDBContext>();
@@ -227,6 +232,27 @@ app.UseAuthorization();
 
 // Map controller routes
 app.MapControllers().WithOpenApi();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var payload = new
+        {
+            status = report.Status.ToString(),
+            totalDurationMs = report.TotalDuration.TotalMilliseconds,
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                durationMs = e.Value.Duration.TotalMilliseconds,
+                description = e.Value.Description
+            })
+        };
+        await context.Response.WriteAsJsonAsync(payload);
+    }
+}).AllowAnonymous().DisableRateLimiting();
 
 var summaries = new[]
 {
