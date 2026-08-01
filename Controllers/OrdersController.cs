@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Authorization;
 using System.Diagnostics;
 
@@ -17,21 +16,20 @@ namespace LogiTrack.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class OrdersController : ControllerBase
+    public class OrdersController : ApiControllerBase
     {
         private readonly LogiTrackDBContext _context;
-        private readonly ILogger<OrdersController> _logger;
         private readonly IMemoryCache _cache;
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(2);
 
         // Shared by every cache entry this controller writes (list pages and individual orders).
-        // Cancelling it evicts everything at once, so any write invalidates all cached reads.
-        private static CancellationTokenSource _cacheTokenSource = new();
+        // Invalidating it evicts everything at once, so any write invalidates all cached reads.
+        private static readonly CacheInvalidationToken _cacheInvalidation = new();
 
         public OrdersController(LogiTrackDBContext context, ILogger<OrdersController> logger, IMemoryCache cache)
+            : base(logger)
         {
             _context = context;
-            _logger = logger;
             _cache = cache;
         }
 
@@ -39,16 +37,7 @@ namespace LogiTrack.Controllers
 
         private static string OrderCacheKey(int id) => $"Order_{id}";
 
-        private MemoryCacheEntryOptions CacheEntryOptions() => new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(CacheDuration)
-            .AddExpirationToken(new CancellationChangeToken(_cacheTokenSource.Token));
-
-        private static void InvalidateCache()
-        {
-            var oldTokenSource = Interlocked.Exchange(ref _cacheTokenSource, new CancellationTokenSource());
-            oldTokenSource.Cancel();
-            oldTokenSource.Dispose();
-        }
+        private static MemoryCacheEntryOptions CacheEntryOptions() => _cacheInvalidation.CreateEntryOptions(CacheDuration);
 
         // GET: api/Orders?pageNumber=1&pageSize=20
         [HttpGet]
@@ -58,7 +47,7 @@ namespace LogiTrack.Controllers
             if (pageNumber < 1 || pageSize < 1 || pageSize > 100)
                 return BadRequest("pageNumber must be >= 1 and pageSize must be between 1 and 100.");
 
-            _logger.LogInformation("GetOrders called. Page {PageNumber}, Size {PageSize}.", pageNumber, pageSize);
+            Logger.LogInformation("GetOrders called. Page {PageNumber}, Size {PageSize}.", pageNumber, pageSize);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
@@ -80,7 +69,7 @@ namespace LogiTrack.Controllers
             }
 
             stopwatch.Stop();
-            _logger.LogInformation("GetOrders returned {OrderCount} of {TotalCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", cached.Orders.Count, cached.TotalCount, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("GetOrders returned {OrderCount} of {TotalCount} orders in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", cached.Orders.Count, cached.TotalCount, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
 
             Response.Headers["X-Total-Count"] = cached.TotalCount.ToString();
             Response.Headers["X-Page-Number"] = pageNumber.ToString();
@@ -94,7 +83,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         public async Task<ActionResult<Order>> GetOrder(int id, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("GetOrder called for id {OrderId}.", id);
+            Logger.LogInformation("GetOrder called for id {OrderId}.", id);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
@@ -112,7 +101,7 @@ namespace LogiTrack.Controllers
             }
 
             stopwatch.Stop();
-            _logger.LogInformation("GetOrder returned order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("GetOrder returned order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
 
             if (order == null)
                 return NotFoundResource("Order", id);
@@ -125,7 +114,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         public async Task<ActionResult<Order>> PostOrder(Order order, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("PostOrder called. Item count: {ItemCount}.", order.Items?.Count ?? 0);
+            Logger.LogInformation("PostOrder called. Item count: {ItemCount}.", order.Items?.Count ?? 0);
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
@@ -184,10 +173,10 @@ namespace LogiTrack.Controllers
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.OrderId == newOrder.OrderId, cancellationToken);
 
-            InvalidateCache();
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
-            _logger.LogInformation("Created Order {OrderId} with {ItemCount} items in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", newOrder.OrderId, incomingItems.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("Created Order {OrderId} with {ItemCount} items in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", newOrder.OrderId, incomingItems.Count, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return CreatedAtAction(nameof(GetOrder), new { id = newOrder.OrderId }, created);
         }
 
@@ -196,7 +185,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         public async Task<IActionResult> PutOrder(int id, Order order, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("PutOrder called for id {OrderId}.", id);
+            Logger.LogInformation("PutOrder called for id {OrderId}.", id);
             if (id != order.OrderId)
                 return BadRequest();
 
@@ -212,10 +201,10 @@ namespace LogiTrack.Controllers
             if (rowsAffected == 0)
                 return NotFoundResource("Order", id);
 
-            InvalidateCache();
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
-            _logger.LogInformation("Updated Order {OrderId} successfully in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("Updated Order {OrderId} successfully in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -224,7 +213,7 @@ namespace LogiTrack.Controllers
         [Authorize(Roles = "Manager")]
         public async Task<IActionResult> DeleteOrder(int id, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("DeleteOrder called for id {OrderId}.", id);
+            Logger.LogInformation("DeleteOrder called for id {OrderId}.", id);
 
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -243,10 +232,10 @@ namespace LogiTrack.Controllers
                 .Where(o => o.OrderId == id)
                 .ExecuteDeleteAsync(cancellationToken);
 
-            InvalidateCache();
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
-            _logger.LogInformation("Deleted Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("Deleted Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -256,7 +245,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         public async Task<IActionResult> AddItemToOrder(int id, InventoryItem item, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
+            Logger.LogInformation("AddItemToOrder called for Order {OrderId}.", id);
 
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -284,10 +273,10 @@ namespace LogiTrack.Controllers
                     return NotFoundResource("InventoryItem", item.Id);
             }
 
-            InvalidateCache();
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
-            _logger.LogInformation("Added InventoryItem to Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("Added InventoryItem to Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
         }
 
@@ -297,7 +286,7 @@ namespace LogiTrack.Controllers
         [Authorize]
         public async Task<IActionResult> RemoveItemFromOrder(int id, int itemId, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);
+            Logger.LogInformation("RemoveItemFromOrder called for Order {OrderId}, Item {InventoryItemId}.", id, itemId);
 
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -313,23 +302,11 @@ namespace LogiTrack.Controllers
             if (rowsAffected == 0)
                 return NotFoundResource("InventoryItem", itemId);
 
-            InvalidateCache();
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
-            _logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", itemId, id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
+            Logger.LogInformation("Removed InventoryItem {InventoryItemId} from Order {OrderId} in {ElapsedMilliseconds} ms, Elapsed: {Elapsed},", itemId, id, stopwatch.ElapsedMilliseconds, stopwatch.Elapsed);
             return NoContent();
-        }
-
-        private ActionResult NotFoundResource(string resource, object id)
-        {
-            _logger?.LogWarning("{Resource} {Id} not found. Path={Path}", resource, id, HttpContext.Request.Path);
-            return NotFound(new ProblemDetails
-            {
-                Title = $"{resource} no encontrado",
-                Detail = $"{resource} con id {id} no existe.",
-                Status = StatusCodes.Status404NotFound,
-                Instance = HttpContext.Request.Path
-            });
         }
     }
 }

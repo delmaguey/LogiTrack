@@ -21,6 +21,7 @@ namespace LogiTrack.Controllers
         private readonly IMemoryCache _cache;
         private const string InventoryListCacheKey = "InventoryItems_All";
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+        private static readonly CacheInvalidationToken _cacheInvalidation = new();
 
         public InventoryController(LogiTrackDBContext context, ILogger<InventoryController> logger, IMemoryCache cache)
             : base(logger)
@@ -46,7 +47,7 @@ namespace LogiTrack.Controllers
             }
 
             items = await _context.InventoryItems.AsNoTracking().ToListAsync(cancellationToken);
-            _cache.Set(InventoryListCacheKey, items, CacheDuration);
+            _cache.Set(InventoryListCacheKey, items, _cacheInvalidation.CreateEntryOptions(CacheDuration));
 
             stopwatch.Stop();
             Logger.LogInformation("GetInventoryItems returned {InventoryItemCount} items in {ElapsedMilliseconds} ms.", items.Count, stopwatch.ElapsedMilliseconds);
@@ -88,7 +89,7 @@ namespace LogiTrack.Controllers
 
             _context.InventoryItems.Add(item);
             await _context.SaveChangesAsync(cancellationToken);
-            _cache.Remove(InventoryListCacheKey);
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
             Logger.LogInformation("Created InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", item.Id, stopwatch.ElapsedMilliseconds);
@@ -125,7 +126,7 @@ namespace LogiTrack.Controllers
                 throw;
             }
 
-            _cache.Remove(InventoryListCacheKey);
+            _cacheInvalidation.Invalidate();
             stopwatch.Stop();
             Logger.LogInformation("Updated InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", id, stopwatch.ElapsedMilliseconds);
             return NoContent();
@@ -150,7 +151,7 @@ namespace LogiTrack.Controllers
 
             _context.InventoryItems.Remove(item);
             await _context.SaveChangesAsync(cancellationToken);
-            _cache.Remove(InventoryListCacheKey);
+            _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
             Logger.LogInformation("Deleted InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", id, stopwatch.ElapsedMilliseconds);

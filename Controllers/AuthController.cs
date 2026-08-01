@@ -45,9 +45,6 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            if (model == null || string.IsNullOrWhiteSpace(model.Email) || string.IsNullOrWhiteSpace(model.Password))
-                return BadRequest("Email and password are required.");
-
             var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
             var result = await _userManager.CreateAsync(user, model.Password);
             if (!result.Succeeded)
@@ -64,9 +61,6 @@ namespace LogiTrack.Controllers
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-
-            if (model == null || string.IsNullOrWhiteSpace(model.Email) || string.IsNullOrWhiteSpace(model.Password))
-                return BadRequest("Email and password are required.");
 
             var user = await _userManager.FindByEmailAsync(model.Email);
             if (user == null)
@@ -86,9 +80,6 @@ namespace LogiTrack.Controllers
         [Authorize(Roles = "Manager")]
         public async Task<IActionResult> AssignManagerRole([FromBody] AssignRoleRequest model)
         {
-            if (model == null || string.IsNullOrWhiteSpace(model.Email))
-                return BadRequest("Email is required.");
-
             var user = await _userManager.FindByEmailAsync(model.Email);
             if (user == null)
                 return NotFoundResource("User", model.Email);
