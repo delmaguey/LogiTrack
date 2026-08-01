@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.ComponentModel.DataAnnotations;
@@ -40,6 +41,7 @@ namespace LogiTrack.Controllers
         
         [HttpPost("register")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest model)
         {
             Stopwatch stopwatch = new Stopwatch();
@@ -57,6 +59,7 @@ namespace LogiTrack.Controllers
 
         [HttpPost("login")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> Login([FromBody] LoginRequest model)
         {
             Stopwatch stopwatch = new Stopwatch();

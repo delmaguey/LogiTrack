@@ -50,5 +50,16 @@ namespace LogiTrack.Controllers
                 Instance = HttpContext?.Request.Path
             });
         }
+
+        // Lets a client skip re-downloading a response it already has by comparing against the
+        // ETag it sent back on its last request.
+        protected bool IsETagMatch(string etag) =>
+            Request.Headers.TryGetValue("If-None-Match", out var ifNoneMatch) && ifNoneMatch == etag;
+
+        protected void SetCacheHeaders(string etag, TimeSpan maxAge)
+        {
+            Response.Headers.ETag = etag;
+            Response.Headers.CacheControl = $"private, max-age={(int)maxAge.TotalSeconds}";
+        }
     }
 }

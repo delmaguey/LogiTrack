@@ -23,6 +23,8 @@ namespace LogiTrack.Controllers
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
         private static readonly CacheInvalidationToken _cacheInvalidation = new();
 
+        private static string InventoryItemCacheKey(int id) => $"InventoryItem_{id}";
+
         public InventoryController(LogiTrackDBContext context, ILogger<InventoryController> logger, IMemoryCache cache)
             : base(logger)
         {
@@ -40,9 +42,18 @@ namespace LogiTrack.Controllers
 
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
+
+            var etag = $"\"inventory-list-v{_cacheInvalidation.Version}\"";
+            if (IsETagMatch(etag))
+            {
+                SetCacheHeaders(etag, CacheDuration);
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+
             if (_cache.TryGetValue(InventoryListCacheKey, out List<InventoryItem>? items) && items != null)
             {
                 Logger.LogInformation("GetInventoryItems served {InventoryItemCount} items from cache.", items.Count);
+                SetCacheHeaders(etag, CacheDuration);
                 return items;
             }
 
@@ -51,6 +62,7 @@ namespace LogiTrack.Controllers
 
             stopwatch.Stop();
             Logger.LogInformation("GetInventoryItems returned {InventoryItemCount} items in {ElapsedMilliseconds} ms.", items.Count, stopwatch.ElapsedMilliseconds);
+            SetCacheHeaders(etag, CacheDuration);
             return items;
         }
 
@@ -64,13 +76,29 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             Logger.LogInformation("GetInventoryItem called for id {InventoryItemId}.", id);
-            var item = await _context.InventoryItems.FindAsync([id], cancellationToken);
+
+            var etag = $"\"inventory-{id}-v{_cacheInvalidation.Version}\"";
+            if (IsETagMatch(etag))
+            {
+                SetCacheHeaders(etag, CacheDuration);
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+
+            var cacheKey = InventoryItemCacheKey(id);
+            if (!_cache.TryGetValue(cacheKey, out InventoryItem? item))
+            {
+                item = await _context.InventoryItems.AsNoTracking().FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+                if (item != null)
+                    _cache.Set(cacheKey, item, _cacheInvalidation.CreateEntryOptions(CacheDuration));
+            }
 
             if (item == null)
                 return NotFoundResource("InventoryItem", id);
 
             stopwatch.Stop();
             Logger.LogInformation("GetInventoryItem returned item in {ElapsedMilliseconds} ms.", stopwatch.ElapsedMilliseconds);
+            SetCacheHeaders(etag, CacheDuration);
             return item;
         }
 
@@ -110,20 +138,18 @@ namespace LogiTrack.Controllers
             if (id != item.Id)
                 return BadRequestResource("Invalid request", "El id en la ruta no coincide con el id del item.");
 
-            _context.Entry(item).State = EntityState.Modified;
+            var rowsAffected = await _context.InventoryItems
+                .Where(i => i.Id == id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(i => i.Name, item.Name)
+                    .SetProperty(i => i.Quantity, item.Quantity)
+                    .SetProperty(i => i.Location, item.Location)
+                    .SetProperty(i => i.OrderId, item.OrderId), cancellationToken);
 
-            try
+            if (rowsAffected == 0)
             {
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!await InventoryItemExistsAsync(id, cancellationToken))
-                {
-                    Logger.LogWarning("InventoryItem {InventoryItemId} not found during update.", id);
-                    return NotFoundResource("InventoryItem", id);
-                }
-                throw;
+                Logger.LogWarning("InventoryItem {InventoryItemId} not found during update.", id);
+                return NotFoundResource("InventoryItem", id);
             }
 
             _cacheInvalidation.Invalidate();
@@ -142,25 +168,22 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             Logger.LogInformation("DeleteInventoryItem called for id {InventoryItemId}.", id);
-            var item = await _context.InventoryItems.FindAsync([id], cancellationToken);
-            if (item == null)
+
+            var rowsAffected = await _context.InventoryItems
+                .Where(i => i.Id == id)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            if (rowsAffected == 0)
             {
                 Logger.LogWarning("InventoryItem {InventoryItemId} not found for delete.", id);
                 return NotFoundResource("InventoryItem", id);
             }
 
-            _context.InventoryItems.Remove(item);
-            await _context.SaveChangesAsync(cancellationToken);
             _cacheInvalidation.Invalidate();
 
             stopwatch.Stop();
             Logger.LogInformation("Deleted InventoryItem {InventoryItemId} in {ElapsedMilliseconds} ms.", id, stopwatch.ElapsedMilliseconds);
             return NoContent();
-        }
-
-        private async Task<bool> InventoryItemExistsAsync(int id, CancellationToken cancellationToken)
-        {
-            return await _context.InventoryItems.AnyAsync(e => e.Id == id, cancellationToken);
         }
     }
 }

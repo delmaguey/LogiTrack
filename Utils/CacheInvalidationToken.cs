@@ -6,6 +6,11 @@ using Microsoft.Extensions.Primitives;
 public sealed class CacheInvalidationToken
 {
     private CancellationTokenSource _tokenSource = new();
+    private int _version;
+
+    // Increments on every Invalidate(), so it doubles as a cheap ETag suffix: a client's cached
+    // response is only stale once the version it saw no longer matches the current one.
+    public int Version => _version;
 
     public MemoryCacheEntryOptions CreateEntryOptions(TimeSpan absoluteExpiration) => new MemoryCacheEntryOptions()
         .SetAbsoluteExpiration(absoluteExpiration)
@@ -16,5 +21,6 @@ public sealed class CacheInvalidationToken
         var oldTokenSource = Interlocked.Exchange(ref _tokenSource, new CancellationTokenSource());
         oldTokenSource.Cancel();
         oldTokenSource.Dispose();
+        Interlocked.Increment(ref _version);
     }
 }

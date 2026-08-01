@@ -51,6 +51,13 @@ namespace LogiTrack.Controllers
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
+            var etag = $"\"orders-list-{pageNumber}-{pageSize}-v{_cacheInvalidation.Version}\"";
+            if (IsETagMatch(etag))
+            {
+                SetCacheHeaders(etag, CacheDuration);
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+
             var cacheKey = OrdersListCacheKey(pageNumber, pageSize);
             if (!_cache.TryGetValue(cacheKey, out (List<Order> Orders, int TotalCount) cached))
             {
@@ -74,6 +81,7 @@ namespace LogiTrack.Controllers
             Response.Headers["X-Total-Count"] = cached.TotalCount.ToString();
             Response.Headers["X-Page-Number"] = pageNumber.ToString();
             Response.Headers["X-Page-Size"] = pageSize.ToString();
+            SetCacheHeaders(etag, CacheDuration);
 
             return cached.Orders;
         }
@@ -86,6 +94,13 @@ namespace LogiTrack.Controllers
             Logger.LogInformation("GetOrder called for id {OrderId}.", id);
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
+
+            var etag = $"\"order-{id}-v{_cacheInvalidation.Version}\"";
+            if (IsETagMatch(etag))
+            {
+                SetCacheHeaders(etag, CacheDuration);
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
 
             var cacheKey = OrderCacheKey(id);
             if (!_cache.TryGetValue(cacheKey, out Order? order))
@@ -106,6 +121,7 @@ namespace LogiTrack.Controllers
             if (order == null)
                 return NotFoundResource("Order", id);
 
+            SetCacheHeaders(etag, CacheDuration);
             return order;
         }
 

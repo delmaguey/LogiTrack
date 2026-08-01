@@ -1,8 +1,12 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using System.Xml.Serialization;
 using LogiTrack.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -120,6 +124,38 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        var problem = new ProblemDetails
+        {
+            Title = "Too many requests",
+            Detail = "Rate limit exceeded. Please try again later.",
+            Status = StatusCodes.Status429TooManyRequests,
+            Instance = context.HttpContext.Request.Path
+        };
+        await context.HttpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
+    };
+
+    // Applies to the anonymous auth endpoints (login/register), which are the ones most exposed
+    // to brute-force/credential-stuffing attempts. Keyed per client IP so one abusive client
+    // can't exhaust the limit for everyone else.
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+});
+
 var app = builder.Build();
 
 // Seed the Manager role and, if no Manager exists yet, one seed Manager account so there's a way
@@ -151,6 +187,29 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(exception, "Unhandled exception processing {Path}", context.Request.Path);
+
+        context.Response.ContentType = "application/problem+json";
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+        var problem = new ProblemDetails
+        {
+            Title = "An unexpected error occurred.",
+            Status = StatusCodes.Status500InternalServerError,
+            Instance = context.Request.Path,
+            Detail = app.Environment.IsDevelopment() ? exception?.ToString() : null
+        };
+
+        await context.Response.WriteAsJsonAsync(problem);
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -160,6 +219,8 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseResponseCompression();
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
