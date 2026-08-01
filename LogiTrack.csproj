@@ -7,6 +7,14 @@
     <UserSecretsId>95f2852e-5985-4ea8-ad1f-25451eb7f804</UserSecretsId>
   </PropertyGroup>
 
+  <!-- LogiTrack.Tests lives in a subfolder of this project; without this, the default **/*.cs
+       glob below would also compile the test project's files into this assembly. -->
+  <ItemGroup>
+    <Compile Remove="LogiTrack.Tests/**/*.cs" />
+    <Content Remove="LogiTrack.Tests/**/*" />
+    <None Remove="LogiTrack.Tests/**/*" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.14" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.14" />

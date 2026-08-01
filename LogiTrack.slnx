@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="LogiTrack.csproj" />
+  <Project Path="LogiTrack.Tests/LogiTrack.Tests.csproj" />
+</Solution>
